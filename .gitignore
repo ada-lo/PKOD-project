@@ -1,0 +1,15 @@
+/.venv
+/assets
+/bytetrack_custom.yaml
+/bytetrack_simple.yaml
+/car_log.csv
+/debug_plates
+/FINALTEST
+/newtest.py
+/occupancy_state.json
+/path
+/PKODmain.py
+/test.py
+/test1.py
+/urltest.py
+/__pycache__
