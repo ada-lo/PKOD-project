@@ -66,7 +66,29 @@ def draw_ui_overlay(frame, occupancy, entry_count, exit_count, frozen=False,
     if frozen:
         cv.putText(frame, "FROZEN - MANUAL RESET REQUIRED (press 'r')", 
                    (420, 40), cv.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    # Authoritative renderer for the plate-visibility ROI (single ROI)
+    draw_plate_roi(frame)
 
 def draw_full_message(frame, message, position=(20, 200), color=(0, 0, 255)):
     """Draw a full parking message."""
     cvzone.putTextRect(frame, message, position, scale=1.5, thickness=2, colorR=color)
+
+
+def draw_plate_roi(frame, color=(0, 255, 255), thickness=2, label="PLATE ROI"):
+    """Draw the configured plate-visibility ROI (single gate rule).
+
+    This is intentionally a simple visual aid: rectangle + label.
+    """
+    roi = getattr(config, "PLATE_ROI", None)
+    if not roi:
+        return
+
+    x1, y1, x2, y2 = int(roi["x1"]), int(roi["y1"]), int(roi["x2"]), int(roi["y2"])
+
+    # Draw rectangle and label
+    cv.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+    # small filled background for label for readability
+    (tw, th), _ = cv.getTextSize(label, cv.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+    pad = 4
+    cv.rectangle(frame, (x1, max(0, y1 - th - pad)), (x1 + tw + pad * 2, y1), (0, 0, 0), -1)
+    cv.putText(frame, label, (x1 + pad, y1 - pad), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
