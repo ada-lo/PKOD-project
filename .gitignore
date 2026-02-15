@@ -1,15 +1,50 @@
+# Virtual environment
 /.venv
+/.gitignore
+/.env.example   
+# Assets and media
 /assets
-/bytetrack_custom.yaml
-/bytetrack_simple.yaml
+/path
+
+# Generated data
+/ocr_jobs
+/ocr_results.json
+/ocr_results.jsonl
 /car_log.csv
 /debug_plates
-/FINALTEST
-/newtest.py
+*.json.tmp
 /occupancy_state.json
-/path
-/PKODmain.py
+
+# Tracker configs (auto-generated)
+/bytetrack_custom.yaml
+/bytetrack_simple.yaml
+
+# Test/experiment scripts
 /test.py
 /test1.py
+/newtest.py
 /urltest.py
-/__pycache__
+/paddletesting.py
+/PKODmain.py
+
+# Deleted/legacy folders
+/FINALIG
+/FINALTEST
+/backup
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment secrets
+.env
+
+# IDE
+.vscode/
+
+# Model weights (large files)
+*.pt
+
+# Zip archives
+*.zip
