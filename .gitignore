@@ -1,13 +1,13 @@
 # Virtual environment
 /.venv
-/.gitignore
+
 /.env.example   
 # Assets and media
 /assets
 /path
 
 # Generated data
-/ocr_jobs
+/PKOD1/ocr_jobs
 /ocr_results.json
 /ocr_results.jsonl
 /car_log.csv
