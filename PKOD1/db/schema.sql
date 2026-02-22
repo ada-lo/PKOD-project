@@ -1,5 +1,5 @@
--- PKOD Supabase Schema Migration
--- Run this in the Supabase SQL Editor to create all required tables.
+-- PKOD PostgreSQL Schema (Neon / Local PostgreSQL)
+-- Auto-executed by init_db() on startup.
 
 -- ============================================================
 -- 1. vehicle_events — logs every entry/exit crossing
@@ -24,13 +24,15 @@ CREATE TABLE IF NOT EXISTS ocr_results (
     track_id        INTEGER NOT NULL,
     plate_text      TEXT,
     confidence      DOUBLE PRECISION,
-    event_type      TEXT CHECK (event_type IN ('entry', 'exit')),
+    event_type      TEXT CHECK (event_type IN ('entry', 'exit', 'unknown')),
     image_path      TEXT,
+    is_valid        BOOLEAN DEFAULT FALSE,
     timestamp       DOUBLE PRECISION NOT NULL,
     created_at      TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_ocr_results_track ON ocr_results (track_id);
+CREATE INDEX IF NOT EXISTS idx_ocr_results_plate ON ocr_results (plate_text);
 
 -- ============================================================
 -- 3. occupancy_snapshot — single-row current state

@@ -3,7 +3,7 @@ import os
 import time
 import config
 
-# Supabase integration (fail-safe: falls back to JSON if unavailable)
+# PostgreSQL integration (fail-safe: falls back to JSON if unavailable)
 try:
     from db import repository as db
     _DB_AVAILABLE = True

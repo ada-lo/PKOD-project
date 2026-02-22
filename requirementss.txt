@@ -1,7 +1,7 @@
-aistudio-sdk
+
 annotated-types
 anyio
-bce-python-sdk
+
 certifi
 chardet
 charset-normalizer
@@ -13,7 +13,7 @@ customtkinter
 cvzone
 cycler
 darkdetect
-easyocr
+
 filelock
 filterpy
 fonttools
@@ -42,9 +42,7 @@ opencv-contrib-python
 opencv-python
 opt-einsum
 packaging
-paddleocr
-paddlepaddle
-paddlex
+rapidocr-onnxruntime
 pandas
 pillow
 polars
@@ -75,7 +73,7 @@ setuptools
 shapely
 shellingham
 six
-supabase
+psycopg2-binary
 sympy
 tifffile
 torch

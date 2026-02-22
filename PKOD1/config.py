@@ -58,5 +58,12 @@ APPEARANCE_WEIGHT = 0.2
 PLATE_ROI = {"x1": 708, "y1": 396, "x2": 1071, "y2": 608}
 MIN_STABLE_FRAMES = 0
 
+# License plate detection model (used by ocr_processor.py)
+LP_MODEL_PATH = os.getenv('LP_MODEL_PATH', '../path/to/LP-detection.pt')
+
+# OCR processor polling interval (seconds)
+OCR_POLL_INTERVAL = float(os.getenv('OCR_POLL_INTERVAL', '2.0'))
+OCR_JOB_DIR = "ocr_jobs"
+
 # Debug mode
 DEBUG = True

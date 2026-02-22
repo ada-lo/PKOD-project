@@ -1,35 +1,6 @@
 import cv2 as cv
 import time
 import threading
-try:
-    from paddleocr import PaddleOCR
-    # Preferred initialization: try the newer parameter first
-    try:
-        _paddle_ocr_engine = PaddleOCR(textline_orientation=True, lang='en')
-        print("[OCR] PaddleOCR initialized (textline_orientation=True)")
-    except Exception as e_init:
-        # Some PaddleOCR versions don't accept the new parameter.
-        msg = str(e_init)
-        if 'Unknown argument' in msg or 'textline_orientation' in msg or isinstance(e_init, TypeError):
-            print(f"[OCR] textline_orientation not supported: {e_init}; falling back to deprecated use_angle_cls")
-            try:
-                _paddle_ocr_engine = PaddleOCR(use_angle_cls=True, lang='en')
-                print("[OCR] PaddleOCR initialized (use_angle_cls=True) — deprecated option")
-            except Exception as e_fallback:
-                _paddle_ocr_engine = None
-                print(f"[OCR] PaddleOCR initialization failed with fallback: {e_fallback}")
-        else:
-            _paddle_ocr_engine = None
-            print(f"[OCR] PaddleOCR initialization failed: {e_init}")
-except ModuleNotFoundError:
-    _paddle_ocr_engine = None
-    print("[OCR] PaddleOCR not available: missing dependency 'paddle'.")
-    print("Install instructions:")
-    print("  pip install paddlepaddle  # choose appropriate wheel for your OS/CPU/GPU")
-    print("  pip install paddleocr")
-except Exception as e:
-    _paddle_ocr_engine = None
-    print(f"[OCR] PaddleOCR initialization failed: {e}")
 import os
 import config
 import json
@@ -41,24 +12,28 @@ from identity.tracklet_buffer import TrackletBuffer
 from events.event_manager import VehicleEventManager
 from state.occupancy_store import load_occupancy, save_occupancy, load_vehicle_states
 from ui.overlay import draw_bounding_box, draw_counting_line, draw_ui_overlay, draw_full_message
-# ROI/OCR observer (kept separate for safety)
+
+# ROI/OCR observer — buffers frames for the separate OCR processor
 try:
     from roi_ocr.roi_observer import observe_roi
 except Exception:
-    # allow main to run even if roi_ocr package missing
     def observe_roi(vs, frame):
         return
-# OCR job runner (main is responsible for executing jobs and handling pixels)
+
+# OCR job producer — saves cropped frames to ocr_jobs/ for the processor
 try:
     from roi_ocr.ocr_jobs import fire_ocr_job
 except Exception:
     def fire_ocr_job(vs, debug=False):
         return
 
-# Supabase event logging (fail-safe)
+# PostgreSQL event logging (fail-safe)
 try:
+    from db.connection import init_db
     from db import repository as db_repo
     _DB_AVAILABLE = True
+    # Auto-create tables on startup
+    init_db()
 except ImportError:
     _DB_AVAILABLE = False
     db_repo = None
