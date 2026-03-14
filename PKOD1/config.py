@@ -11,14 +11,14 @@ except ImportError:
 
 
 # Video source (file path, camera index, or RTSP URL)
-VIDEO_PATH = os.getenv('VIDEO_PATH', 'rtsp://192.168.1.108:554/live')
-TARGET_WIDTH = int(os.getenv('TARGET_WIDTH', '1280'))
-TARGET_HEIGHT = int(os.getenv('TARGET_HEIGHT', '720'))
+VIDEO_PATH = os.getenv('VIDEO_PATH', '../source/D61_S20251201080035_E20251201080639.mp4')
+TARGET_WIDTH = int(os.getenv('TARGET_WIDTH', '3840'))
+TARGET_HEIGHT = int(os.getenv('TARGET_HEIGHT', '2160'))
 
 MAX_CAPACITY = int(os.getenv('MAX_CAPACITY', '80'))
 
-# The Counting Line [x1, y1, x2, y2]
-LINE = [250, 370, 1100, 370]
+# The Counting Line [x1, y1, x2, y2] — scaled for 3840x2160
+LINE = [750, 1110, 3300, 1110]
 
 # TRACKING CONFIGURATION
 TRACKER_TYPE = "bytetrack"
@@ -54,16 +54,17 @@ MAX_REASSOC_DISTANCE = 200
 
 APPEARANCE_WEIGHT = 0.2
 
-# --- PLATE ROI: Single gate, single ROI (plate visibility window)
-PLATE_ROI = {"x1": 708, "y1": 396, "x2": 1071, "y2": 608}
+# --- PLATE ROI: Single gate, single ROI (plate visibility window) — scaled for 3840x2160
+PLATE_ROI = {"x1": 2124, "y1": 1188, "x2": 3213, "y2": 1824}
 MIN_STABLE_FRAMES = 0
 
 # License plate detection model (used by ocr_processor.py)
-LP_MODEL_PATH = os.getenv('LP_MODEL_PATH', '../path/to/LP-detection.pt')
+LP_MODEL_PATH = os.getenv('LP_MODEL_PATH', 'path/to/LP-detection.pt')
 
 # OCR processor polling interval (seconds)
 OCR_POLL_INTERVAL = float(os.getenv('OCR_POLL_INTERVAL', '2.0'))
 OCR_JOB_DIR = "ocr_jobs"
+PLATE_CROPS_DIR = "plate_crops"
 
 # Debug mode
 DEBUG = True
