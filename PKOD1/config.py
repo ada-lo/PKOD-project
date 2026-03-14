@@ -11,7 +11,7 @@ except ImportError:
 
 
 # Video source (file path, camera index, or RTSP URL)
-VIDEO_PATH = os.getenv('VIDEO_PATH', 'rtsp://192.168.1.108:554/live')
+VIDEO_PATH = os.getenv('VIDEO_PATH', '../source/D61_S20251201080035_E20251201080639.mp4')
 TARGET_WIDTH = int(os.getenv('TARGET_WIDTH', '1280'))
 TARGET_HEIGHT = int(os.getenv('TARGET_HEIGHT', '720'))
 
@@ -59,11 +59,12 @@ PLATE_ROI = {"x1": 708, "y1": 396, "x2": 1071, "y2": 608}
 MIN_STABLE_FRAMES = 0
 
 # License plate detection model (used by ocr_processor.py)
-LP_MODEL_PATH = os.getenv('LP_MODEL_PATH', '../path/to/LP-detection.pt')
+LP_MODEL_PATH = os.getenv('LP_MODEL_PATH', 'path/to/LP-detection.pt')
 
 # OCR processor polling interval (seconds)
 OCR_POLL_INTERVAL = float(os.getenv('OCR_POLL_INTERVAL', '2.0'))
 OCR_JOB_DIR = "ocr_jobs"
+PLATE_CROPS_DIR = "plate_crops"
 
 # Debug mode
 DEBUG = True

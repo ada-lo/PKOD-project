@@ -1,0 +1,14 @@
+{
+  "track_id": 11,
+  "event_type": "unknown",
+  "timestamp": 1773489382.59993,
+  "plates": [
+    {
+      "filename": "plate_000_0.jpg",
+      "upscaled_filename": "plate_000_0_upscaled.jpg",
+      "detection_confidence": 0.6539,
+      "frame_index": 0,
+      "status": "pending_ocr"
+    }
+  ]
+}

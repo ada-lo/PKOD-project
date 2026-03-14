@@ -21,6 +21,7 @@ import time
 import json
 import re
 import shutil
+import urllib.request
 import cv2 as cv
 import numpy as np
 
@@ -42,6 +43,89 @@ except ImportError:
 # ── License plate detection model ──────────────────────────────────
 
 _lp_model = None
+PLATE_CROPS_DIR = getattr(config, 'PLATE_CROPS_DIR', 'plate_crops')
+
+# ── AI Super-Resolution (Real-ESRGAN x4fast) ─────────────────────────────────
+# Uses SRVGGNetCompact (compact/fast variant). Weights auto-download on first use (~17MB).
+# Falls back to Lanczos4 + unsharp masking if unavailable.
+
+_REALESRGAN_URL = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-animevideov3.pth"
+_REALESRGAN_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "path", "to", "realesr-animevideov3.pth")
+_sr_model = None
+_sr_model_tried = False
+
+
+def _get_sr_model():
+    """Lazy-load Real-ESRGAN x4fast model. Auto-downloads weights if missing."""
+    global _sr_model, _sr_model_tried
+    if _sr_model_tried:
+        return _sr_model
+    _sr_model_tried = True
+
+    # Auto-download weights if not present
+    if not os.path.exists(_REALESRGAN_MODEL_PATH):
+        try:
+            print(f"[SR] Downloading Real-ESRGAN x4fast weights (~17MB) to {_REALESRGAN_MODEL_PATH} ...")
+            os.makedirs(os.path.dirname(_REALESRGAN_MODEL_PATH), exist_ok=True)
+            urllib.request.urlretrieve(_REALESRGAN_URL, _REALESRGAN_MODEL_PATH)
+            print("[SR] Download complete.")
+        except Exception as e:
+            print(f"[SR] Could not download Real-ESRGAN weights: {e} — using fallback upscaling")
+            return None
+
+    try:
+        import torch
+        from realesrgan.archs.srvgg_arch import SRVGGNetCompact
+        from realesrgan import RealESRGANer
+
+        arch = SRVGGNetCompact(
+            num_in_ch=3, num_out_ch=3,
+            num_feat=64, num_conv=16,
+            upscale=4, act_type='prelu'
+        )
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        upsampler = RealESRGANer(
+            scale=4,
+            model_path=_REALESRGAN_MODEL_PATH,
+            model=arch,
+            tile=0,
+            tile_pad=10,
+            pre_pad=0,
+            half=torch.cuda.is_available(),  # fp16 on GPU for speed
+            device=device,
+        )
+        _sr_model = upsampler
+        print(f"[SR] Real-ESRGAN x4fast loaded on {device}.")
+        return _sr_model
+    except Exception as e:
+        print(f"[SR] Failed to load Real-ESRGAN: {e} — using fallback upscaling")
+        return None
+
+
+def _upscale_plate(img):
+    """Upscale a plate crop image.
+
+    Primary:  Real-ESRGAN x4fast (SRVGGNetCompact).
+    Fallback: Lanczos4 x4 interpolation + unsharp masking.
+
+    Always returns a BGR image at 4x the input resolution.
+    """
+    sr = _get_sr_model()
+    if sr is not None:
+        try:
+            # RealESRGANer expects BGR uint8 input, returns BGR uint8
+            output, _ = sr.enhance(img, outscale=4)
+            return output
+        except Exception as e:
+            print(f"[SR] Real-ESRGAN inference failed: {e} — falling back to Lanczos")
+
+    # Fallback: Lanczos4 + unsharp masking
+    h, w = img.shape[:2]
+    upscaled = cv.resize(img, (w * 4, h * 4), interpolation=cv.INTER_LANCZOS4)
+    blurred = cv.GaussianBlur(upscaled, (0, 0), 3)
+    sharpened = cv.addWeighted(upscaled, 1.5, blurred, -0.5, 0)
+    return sharpened
+
 
 def _get_lp_model():
     """Lazy-load the YOLO license plate detection model."""
@@ -115,6 +199,56 @@ def _is_valid_plate(text: str) -> bool:
     if not text or len(text) < 4:
         return False
     return bool(_INDIAN_PLATE_RE.match(text))
+
+
+# ── Plate crop saver ─────────────────────────────────────────────
+
+def _save_plate_crop(job_id, track_id, event_type, frame_index, plate_index, plate_crop, det_conf):
+    """Save a single detected plate crop + upscaled version + metadata to plate_crops/<job_id>/."""
+    try:
+        job_dir = os.path.join(PLATE_CROPS_DIR, job_id)
+        os.makedirs(job_dir, exist_ok=True)
+
+        img_name = f"plate_{frame_index:03d}_{plate_index}.jpg"
+        img_path = os.path.join(job_dir, img_name)
+        cv.imwrite(img_path, plate_crop)
+
+        # Upscale and save alongside original
+        upscaled_name = f"plate_{frame_index:03d}_{plate_index}_upscaled.jpg"
+        upscaled_path = os.path.join(job_dir, upscaled_name)
+        try:
+            upscaled = _upscale_plate(plate_crop)
+            cv.imwrite(upscaled_path, upscaled)
+        except Exception as e:
+            print(f"[OCR-PROC] Upscaling failed for {img_name}: {e}")
+            upscaled_name = None
+
+        # Load or create the shared metadata.json for this job
+        meta_path = os.path.join(job_dir, "metadata.json")
+        if os.path.exists(meta_path):
+            with open(meta_path, 'r') as f:
+                metadata = json.load(f)
+        else:
+            metadata = {
+                "track_id": int(track_id),
+                "event_type": event_type,
+                "timestamp": time.time(),
+                "plates": [],
+            }
+
+        metadata["plates"].append({
+            "filename": img_name,
+            "upscaled_filename": upscaled_name,
+            "detection_confidence": round(float(det_conf), 4),
+            "frame_index": frame_index,
+            "status": "pending_ocr",
+        })
+
+        with open(meta_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+
+    except Exception as e:
+        print(f"[OCR-PROC] Failed to save plate crop: {e}")
 
 
 # ── Core processing ───────────────────────────────────────────────
@@ -203,9 +337,10 @@ def process_job(job_path: str) -> dict:
     best_plate = None
     best_conf = 0.0
     best_valid = False
+    job_id = os.path.basename(job_path)
 
     # Process each frame, keep the best plate reading
-    for fname in frame_files:
+    for frame_index, fname in enumerate(frame_files):
         fpath = os.path.join(job_path, fname)
         if not os.path.exists(fpath):
             continue
@@ -217,7 +352,7 @@ def process_job(job_path: str) -> dict:
         # Step 1: Detect license plates in the frame
         plates = _detect_plates(frame)
 
-        for (x1, y1, x2, y2, det_conf) in plates:
+        for plate_index, (x1, y1, x2, y2, det_conf) in enumerate(plates):
             # Ensure valid crop dimensions
             h, w = frame.shape[:2]
             x1 = max(0, x1)
@@ -229,6 +364,10 @@ def process_job(job_path: str) -> dict:
                 continue
 
             plate_crop = frame[y1:y2, x1:x2]
+
+            # Save the plate crop to plate_crops/ folder
+            _save_plate_crop(job_id, track_id, event_type,
+                             frame_index, plate_index, plate_crop, det_conf)
 
             # Step 2: OCR on the plate crop
             text, ocr_conf = _read_plate_text(plate_crop)
