@@ -37,7 +37,7 @@ def load_occupancy():
                 ex = int(data.get('exit_count', 0))
                 last = float(data.get('last_update', 0))
                 if occ < 0 or occ > config.MAX_CAPACITY:
-                    print("Loaded occupancy out of range; clamping and entering freeze mode")
+                    print(f"[WARNING] Loaded occupancy {occ} out of range [0, {config.MAX_CAPACITY}]; clamping and continuing")
                     occ = max(0, min(occ, config.MAX_CAPACITY))
                 return occ, ent, ex, last
         except Exception as e:

@@ -17,8 +17,15 @@ TARGET_HEIGHT = int(os.getenv('TARGET_HEIGHT', '2160'))
 
 MAX_CAPACITY = int(os.getenv('MAX_CAPACITY', '80'))
 
-# The Counting Line [x1, y1, x2, y2] — scaled for 3840x2160
-LINE = [750, 1110, 3300, 1110]
+# --- Base resolution for authored coordinates (4K) ---
+_BASE_W, _BASE_H = 3840, 2160
+_SCALE_X = TARGET_WIDTH / _BASE_W
+_SCALE_Y = TARGET_HEIGHT / _BASE_H
+
+# The Counting Line [x1, y1, x2, y2] — authored at 3840x2160, auto-scaled
+_LINE_BASE = [750, 1110, 3300, 1110]
+LINE = [int(_LINE_BASE[0] * _SCALE_X), int(_LINE_BASE[1] * _SCALE_Y),
+        int(_LINE_BASE[2] * _SCALE_X), int(_LINE_BASE[3] * _SCALE_Y)]
 
 # TRACKING CONFIGURATION
 TRACKER_TYPE = "bytetrack"
@@ -39,8 +46,8 @@ REID_SIMILARITY_THRESH = 0.7
 DETECTED_MIN_FRAMES = 5
 ARM_MIN_FRAMES = 3
 CONFIRM_FRAMES = 2
-MIN_DISPLACEMENT = 30
-PRE_ZONE_PIXELS = 80
+MIN_DISPLACEMENT = int(30 * _SCALE_Y)
+PRE_ZONE_PIXELS = int(80 * _SCALE_Y)
 DIRECTION_STABLE_FRAMES = 4
 WARMUP_SECS = 6.0
 
@@ -50,12 +57,18 @@ COMMAND_FILE = "admin_commands.json"
 
 OCCUPANCY_AUDIT_LIMIT = 200
 LOST_BUFFER_SECS = 2.0
-MAX_REASSOC_DISTANCE = 200
+MAX_REASSOC_DISTANCE = int(200 * _SCALE_X)
 
 APPEARANCE_WEIGHT = 0.2
 
-# --- PLATE ROI: Single gate, single ROI (plate visibility window) — scaled for 3840x2160
-PLATE_ROI = {"x1": 2124, "y1": 1188, "x2": 3213, "y2": 1824}
+# --- PLATE ROI: Single gate, single ROI (plate visibility window) — authored at 3840x2160, auto-scaled
+_ROI_BASE = {"x1": 2124, "y1": 1188, "x2": 3213, "y2": 1824}
+PLATE_ROI = {
+    "x1": int(_ROI_BASE["x1"] * _SCALE_X),
+    "y1": int(_ROI_BASE["y1"] * _SCALE_Y),
+    "x2": int(_ROI_BASE["x2"] * _SCALE_X),
+    "y2": int(_ROI_BASE["y2"] * _SCALE_Y),
+}
 MIN_STABLE_FRAMES = 0
 
 # License plate detection model (used by ocr_processor.py)

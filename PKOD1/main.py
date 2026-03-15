@@ -262,6 +262,7 @@ while True:
                                 if 'entry' not in event_manager.counted.get(track_id, set()):
                                     if occupancy < config.MAX_CAPACITY:
                                         event_manager.counted[track_id].add('entry')
+                                        vehicle_states[track_id].has_entered = True
                                         entry_count += 1
                                         occupancy += 1
                                         draw_counting_line(frame, highlight_color=(0, 255, 0))
@@ -277,6 +278,7 @@ while True:
                             else:  # exit
                                 if 'exit' not in event_manager.counted.get(track_id, set()):
                                     event_manager.counted[track_id].add('exit')
+                                    vehicle_states[track_id].has_exited = True
                                     exit_count += 1
                                     occupancy = max(0, occupancy - 1)
                                     draw_counting_line(frame, highlight_color=(0, 255, 0))
