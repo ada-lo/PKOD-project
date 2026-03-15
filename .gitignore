@@ -8,6 +8,7 @@
 
 # Generated data
 /PKOD1/ocr_jobs
+/PKOD1/plate_crops
 /ocr_results.json
 /ocr_results.jsonl
 /car_log.csv
