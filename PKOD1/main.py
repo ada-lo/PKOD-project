@@ -268,9 +268,10 @@ while True:
                                         draw_counting_line(frame, highlight_color=(0, 255, 0))
                                         print(f"[ENTRY] ID:{track_id} | Occupancy: {occupancy}/{config.MAX_CAPACITY}")
                                         save_occupancy(occupancy, entry_count, exit_count, reason='entry', vehicle_states=[vars(v) for v in vehicle_states.values()])
-                                        # Log to Supabase
+                                        # Log to Supabase (background, non-blocking)
                                         if _DB_AVAILABLE:
-                                            db_repo.log_vehicle_event(track_id, 'entry', occupancy)
+                                            _tid, _occ = track_id, occupancy
+                                            threading.Thread(target=lambda: db_repo.log_vehicle_event(_tid, 'entry', _occ), daemon=True).start()
                                     else:
                                         draw_full_message(frame, "FULL - NO ENTRY", (cx - 80, cy - 30))
                                         print(f"[BLOCKED] ID:{track_id} - Parking FULL")
@@ -284,9 +285,10 @@ while True:
                                     draw_counting_line(frame, highlight_color=(0, 255, 0))
                                     print(f"[EXIT] ID:{track_id} | Occupancy: {occupancy}/{config.MAX_CAPACITY}")
                                     save_occupancy(occupancy, entry_count, exit_count, reason='exit', vehicle_states=[vars(v) for v in vehicle_states.values()])
-                                    # Log to Supabase
+                                    # Log to Supabase (background, non-blocking)
                                     if _DB_AVAILABLE:
-                                        db_repo.log_vehicle_event(track_id, 'exit', occupancy)
+                                        _tid, _occ = track_id, occupancy
+                                        threading.Thread(target=lambda: db_repo.log_vehicle_event(_tid, 'exit', _occ), daemon=True).start()
 
                             if occupancy < 0 or occupancy > config.MAX_CAPACITY:
                                 print("[ALERT] Occupancy invariant violated — freezing counting until manual reset")

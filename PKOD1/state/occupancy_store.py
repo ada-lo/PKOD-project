@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import threading
 import config
 
 # PostgreSQL integration (fail-safe: falls back to JSON if unavailable)
@@ -215,13 +216,21 @@ def save_occupancy(occupancy, entry_count, exit_count, reason=None, vehicle_stat
         # Write to local JSON (primary fallback)
         _atomic_write(config.OCCUPANCY_STATE_FILE, out)
 
-        # Write to Supabase (secondary, fail-safe)
+        # Write to Supabase in background thread (non-blocking)
         if _DB_AVAILABLE:
-            db.update_occupancy(
-                clamped_occ, int(entry_count), int(exit_count),
-                max_capacity=config.MAX_CAPACITY, reason=reason,
-            )
-            if vs_list:
-                db.save_vehicle_states_bulk(vs_list)
+            _occ = clamped_occ
+            _ent = int(entry_count)
+            _ex = int(exit_count)
+            _mc = config.MAX_CAPACITY
+            _reason = reason
+            _vs = list(vs_list)  # snapshot
+            def _db_write():
+                try:
+                    db.update_occupancy(_occ, _ent, _ex, max_capacity=_mc, reason=_reason)
+                    if _vs:
+                        db.save_vehicle_states_bulk(_vs)
+                except Exception as e:
+                    print(f"[DB] Background save failed: {e}")
+            threading.Thread(target=_db_write, daemon=True).start()
     except Exception as e:
         print(f"Failed to save occupancy: {e}")
