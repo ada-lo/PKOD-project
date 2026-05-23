@@ -12,6 +12,9 @@
 /PKOD1/ocr_jobs
 /ocr_results.json
 /ocr_results.jsonl
+/PKOD1/ocr_results.json
+/PKOD1/ocr_results.jsonl
+/PKOD1/ocr_evaluation
 /car_log.csv
 /debug_plates
 *.json.tmp

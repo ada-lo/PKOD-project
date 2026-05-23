@@ -11,7 +11,7 @@ from identity.vehicle_tracker import VehicleTracker
 from identity.tracklet_buffer import TrackletBuffer
 from events.event_manager import VehicleEventManager
 from state.occupancy_store import load_occupancy, save_occupancy, load_vehicle_states
-from ui.overlay import draw_bounding_box, draw_counting_line, draw_ui_overlay, draw_full_message
+from ui.overlay import draw_bounding_box, draw_counting_line, draw_ui_overlay, draw_full_message, draw_ocr_overlay
 
 # ROI/OCR observer — buffers frames for the separate OCR processor
 try:
@@ -47,6 +47,74 @@ except ImportError:
 
 
 DEBUG = getattr(config, 'DEBUG', True)
+
+
+def _cleanup_temporal_buffer(vs, now_ts):
+    max_age = getattr(config, "TEMPORAL_BUFFER_CLEANUP_SECS", 2.5)
+    buf = getattr(vs, "temporal_ocr_buffer", None)
+    if not buf:
+        return
+    while buf and (now_ts - float(buf[0].get("timestamp", now_ts))) > max_age:
+        buf.popleft()
+
+
+def _bbox_intersects_roi(bbox, roi):
+    if not roi:
+        return False
+    x1, y1, x2, y2 = bbox
+    return not (
+        x2 < int(roi["x1"])
+        or x1 > int(roi["x2"])
+        or y2 < int(roi["y1"])
+        or y1 > int(roi["y2"])
+    )
+
+
+def _buffer_temporal_crop(vs, frame, bbox, frame_id):
+    if not getattr(config, "ENABLE_TEMPORAL_OCR", True):
+        return
+    if not _bbox_intersects_roi(bbox, getattr(config, "PLATE_ROI", None)):
+        return
+
+    x1, y1, x2, y2 = bbox
+    fh, fw = frame.shape[:2]
+    ix1 = max(0, int(x1))
+    iy1 = max(0, int(y1))
+    ix2 = min(fw, int(x2))
+    iy2 = min(fh, int(y2))
+    if ix2 <= ix1 or iy2 <= iy1:
+        return
+
+    crop = frame[iy1:iy2, ix1:ix2].copy()
+    now_ts = time.time()
+    entry = {
+        "frame_id": int(frame_id),
+        "timestamp": now_ts,
+        "plate_crop": crop,
+    }
+    vs.temporal_ocr_buffer.append(entry)
+    _cleanup_temporal_buffer(vs, now_ts)
+
+
+def _load_live_ocr_snapshot():
+    if not getattr(config, "OCR_ENABLE_OVERLAY", True):
+        return {}
+    snapshot_path = getattr(config, "OCR_RESULTS_SNAPSHOT", "ocr_results.json")
+    if not os.path.exists(snapshot_path):
+        return {}
+    try:
+        with open(snapshot_path, "r") as f:
+            payload = json.load(f)
+        now_ts = time.time()
+        stale_secs = getattr(config, "OCR_OVERLAY_STALE_SECS", 60.0)
+        results = {}
+        for track_id, item in (payload.get("results_by_track") or {}).items():
+            ts = float(item.get("timestamp", 0.0) or 0.0)
+            if now_ts - ts <= stale_secs:
+                results[int(track_id)] = item
+        return results
+    except Exception:
+        return {}
 
 def check_admin_commands(occupancy, entry_count, exit_count, frozen):
     """
@@ -142,6 +210,7 @@ class VehicleState:
 
         # bounded frame buffer; store only copies
         self.ocr_frame_buffer = deque(maxlen=10)
+        self.temporal_ocr_buffer = deque(maxlen=max(1, getattr(config, "TEMPORAL_BUFFER_SIZE", 12)))
 
 
 vehicle_states = {v['id']: VehicleState(v['id'], has_entered=v.get('has_entered', False), has_exited=v.get('has_exited', False)) for v in vehicle_states_list}
@@ -180,6 +249,8 @@ while True:
 
     frame_count += 1
      
+    live_ocr_results = _load_live_ocr_snapshot()
+
     occupancy, entry_count, exit_count, frozen, updated = check_admin_commands(
         occupancy, entry_count, exit_count, frozen
     )
@@ -231,6 +302,8 @@ while True:
                 # Draw bounding box (capture returned center)
                 is_reid = track_id != original_id
                 cx, cy = draw_bounding_box(frame, box, track_id, conf, is_reid=is_reid)
+                if track_id in live_ocr_results:
+                    draw_ocr_overlay(frame, box, live_ocr_results[track_id])
 
                 # --- DIRECTION (used by observer only) ---
                 # Determine recent motion to infer direction. TOP->BOTTOM (dy>0)=ENTRY
@@ -314,6 +387,9 @@ while True:
                 vs.direction = direction
                 vs.bbox = (x1, y1, x2, y2)
 
+                # Maintain a lightweight rolling OCR history while the track is visible in ROI.
+                _buffer_temporal_crop(vs, frame, (x1, y1, x2, y2), frame_count)
+
                 # Safety: verify observer cannot alter counts or vehicle flags
                 before_counts = (entry_count, exit_count)
                 before_flags = (bool(vs.has_entered), bool(vs.has_exited))
@@ -363,6 +439,9 @@ while True:
                     dbg_text += " | OCR_ARMED"
                 if vs and getattr(vs, 'ocr_fired', False):
                     dbg_text += " | OCR_FIRED"
+                if t_id in live_ocr_results:
+                    live = live_ocr_results[t_id]
+                    dbg_text += f" | OCR={live.get('plate_text') or 'N/A'}"
                 dbg_x = max(0, x1)
                 dbg_y = max(20, y1 - 10)
                 debug_overlays.append((dbg_text, (dbg_x, dbg_y)))

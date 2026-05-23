@@ -65,6 +65,22 @@ LP_MODEL_PATH = os.getenv('LP_MODEL_PATH', 'path/to/LP-detection.pt')
 OCR_POLL_INTERVAL = float(os.getenv('OCR_POLL_INTERVAL', '2.0'))
 OCR_JOB_DIR = "ocr_jobs"
 PLATE_CROPS_DIR = "plate_crops"
+OCR_RESULTS_FILE = os.getenv('OCR_RESULTS_FILE', 'ocr_results.jsonl')
+OCR_RESULTS_SNAPSHOT = os.getenv('OCR_RESULTS_SNAPSHOT', 'ocr_results.json')
+
+# Temporal OCR research toggles
+ENABLE_TEMPORAL_OCR = os.getenv('ENABLE_TEMPORAL_OCR', '1') == '1'
+TEMPORAL_BUFFER_SIZE = int(os.getenv('TEMPORAL_BUFFER_SIZE', '12'))
+TEMPORAL_BUFFER_MIN_FRAMES = int(os.getenv('TEMPORAL_BUFFER_MIN_FRAMES', '3'))
+TEMPORAL_BUFFER_CLEANUP_SECS = float(os.getenv('TEMPORAL_BUFFER_CLEANUP_SECS', '2.5'))
+TEMPORAL_WEIGHTING_STRATEGY = os.getenv('TEMPORAL_WEIGHTING_STRATEGY', 'confidence_quality')
+OCR_EXPERIMENT_MODE = os.getenv('OCR_EXPERIMENT_MODE', 'A').upper()
+OCR_EVALUATION_ENABLED = os.getenv('OCR_EVALUATION_ENABLED', '1') == '1'
+OCR_EVALUATION_DIR = os.getenv('OCR_EVALUATION_DIR', 'ocr_evaluation')
+OCR_GROUND_TRUTH_FILE = os.getenv('OCR_GROUND_TRUTH_FILE', '')
+OCR_ENABLE_OVERLAY = os.getenv('OCR_ENABLE_OVERLAY', '1') == '1'
+OCR_OVERLAY_STALE_SECS = float(os.getenv('OCR_OVERLAY_STALE_SECS', '60.0'))
+OCR_SYNTHETIC_DEGRADATIONS = os.getenv('OCR_SYNTHETIC_DEGRADATIONS', '')
 
 # Debug mode
 DEBUG = True

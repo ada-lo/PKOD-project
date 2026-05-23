@@ -29,6 +29,15 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config
+from research.degradation import apply_degradation_pipeline
+from research.evaluation import export_metrics
+from research.quality import compute_frame_quality
+from research.temporal_fusion import (
+    INDIAN_PLATE_RE,
+    TemporalOCRFusion,
+    normalize_plate_text,
+    plate_regex_score,
+)
 
 # Supabase integration (fail-safe)
 try:
@@ -153,6 +162,12 @@ def _get_lp_model():
 # ── RapidOCR engine ────────────────────────────────────────────────
 
 _ocr_engine = None
+MODE_CODE_MAP = {
+    "A": "single_frame",
+    "B": "majority_vote",
+    "C": "confidence_weighted",
+    "D": "character_weighted",
+}
 
 def _get_ocr_engine():
     """Lazy-load RapidOCR engine."""
@@ -199,6 +214,145 @@ def _is_valid_plate(text: str) -> bool:
     if not text or len(text) < 4:
         return False
     return bool(_INDIAN_PLATE_RE.match(text))
+
+
+def _parse_degradation_specs():
+    raw = getattr(config, "OCR_SYNTHETIC_DEGRADATIONS", "")
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _mode_code_to_key():
+    mode_code = getattr(config, "OCR_EXPERIMENT_MODE", "A").upper()
+    return MODE_CODE_MAP.get(mode_code, "single_frame")
+
+
+def _prediction_payload(plate_text, confidence, observations, fallback_quality=0.0):
+    support = [obs for obs in observations if normalize_plate_text(obs.get("ocr_text")) == plate_text]
+    if not support and observations:
+        support = sorted(observations, key=lambda obs: float(obs.get("weighted_score", 0.0) or 0.0), reverse=True)[:1]
+
+    quality_score = max([float(obs.get("quality_score", 0.0) or 0.0) for obs in support], default=fallback_quality)
+    current_ocr = support[0].get("ocr_text") if support else None
+
+    return {
+        "plate_text": plate_text or None,
+        "confidence": round(float(confidence or 0.0), 4),
+        "quality_score": round(float(quality_score or 0.0), 4),
+        "current_ocr": current_ocr,
+        "support_count": len(support),
+        "valid": _is_valid_plate(plate_text or ""),
+    }
+
+
+def _confidence_for_prediction(plate_text, observations):
+    if not plate_text:
+        return 0.0
+    matches = [
+        float(obs.get("weighted_score", 0.0) or 0.0)
+        for obs in observations
+        if normalize_plate_text(obs.get("ocr_text")) == plate_text
+    ]
+    if not matches:
+        return 0.0
+    return max(matches)
+
+
+def _load_ground_truth_map():
+    gt_path = getattr(config, "OCR_GROUND_TRUTH_FILE", "")
+    if not gt_path or not os.path.exists(gt_path):
+        return {}
+    try:
+        with open(gt_path, "r") as f:
+            payload = json.load(f)
+        return payload if isinstance(payload, dict) else {}
+    except Exception as e:
+        print(f"[OCR-PROC] Failed to load ground truth file: {e}")
+        return {}
+
+
+def _write_results_snapshot(result):
+    snapshot_path = getattr(config, "OCR_RESULTS_SNAPSHOT", "ocr_results.json")
+    payload = {"results_by_track": {}}
+    if os.path.exists(snapshot_path):
+        try:
+            with open(snapshot_path, "r") as f:
+                payload = json.load(f)
+        except Exception:
+            payload = {"results_by_track": {}}
+
+    results_by_track = payload.setdefault("results_by_track", {})
+    results_by_track[str(result["track_id"])] = {
+        "track_id": result["track_id"],
+        "plate_text": result.get("plate_text"),
+        "current_ocr": result.get("current_ocr"),
+        "confidence": result.get("confidence", 0.0),
+        "quality_score": result.get("quality_score", 0.0),
+        "timestamp": result.get("timestamp", time.time()),
+        "selected_mode": result.get("selected_mode"),
+    }
+
+    with open(snapshot_path, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
+def _append_evaluation_record(result):
+    if not getattr(config, "OCR_EVALUATION_ENABLED", True):
+        return
+
+    eval_dir = getattr(config, "OCR_EVALUATION_DIR", "ocr_evaluation")
+    os.makedirs(eval_dir, exist_ok=True)
+    records_path = os.path.join(eval_dir, "records.jsonl")
+    gt_map = _load_ground_truth_map()
+    key_candidates = [
+        result.get("job_id"),
+        str(result.get("job_id")),
+        result.get("track_id"),
+        str(result.get("track_id")),
+    ]
+    ground_truth = ""
+    for key in key_candidates:
+        if key in gt_map:
+            ground_truth = normalize_plate_text(gt_map[key])
+            break
+
+    record = {
+        "job_id": result.get("job_id"),
+        "track_id": result.get("track_id"),
+        "ground_truth": ground_truth,
+        "modes": result.get("modes", {}),
+        "timestamp": result.get("timestamp", time.time()),
+        "degradations": result.get("degradations", []),
+    }
+
+    with open(records_path, "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+    if not ground_truth:
+        return
+
+    records = []
+    try:
+        with open(records_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
+    except Exception as e:
+        print(f"[OCR-PROC] Failed to reload evaluation records: {e}")
+        return
+
+    export_metrics(
+        records,
+        os.path.join(eval_dir, "summary.csv"),
+        os.path.join(eval_dir, "summary.json"),
+        ["single_frame", "majority_vote", "confidence_weighted", "character_weighted"],
+    )
 
 
 # ── Plate crop saver ─────────────────────────────────────────────
@@ -329,17 +483,27 @@ def process_job(job_path: str) -> dict:
     track_id = metadata.get('track_id', -1)
     event_type = metadata.get('event_type', 'unknown')
     frame_files = metadata.get('frames', [])
+    frame_metadata_lookup = {
+        item.get("filename"): item
+        for item in metadata.get("frame_metadata", [])
+        if isinstance(item, dict) and item.get("filename")
+    }
 
     if not frame_files:
         print(f"[OCR-PROC] No frames in job {job_path}")
         return None
 
-    best_plate = None
-    best_conf = 0.0
-    best_valid = False
     job_id = os.path.basename(job_path)
+    degradations = _parse_degradation_specs()
+    temporal_fuser = TemporalOCRFusion(
+        weighting_strategy=getattr(config, "TEMPORAL_WEIGHTING_STRATEGY", "confidence_quality"),
+        plate_regex=INDIAN_PLATE_RE,
+    )
+    observations = []
+    best_single_observation = None
 
-    # Process each frame, keep the best plate reading
+    # Process each frame, keep the original best single-frame reading plus the
+    # per-frame observation history needed for temporal fusion.
     for frame_index, fname in enumerate(frame_files):
         fpath = os.path.join(job_path, fname)
         if not os.path.exists(fpath):
@@ -364,36 +528,96 @@ def process_job(job_path: str) -> dict:
                 continue
 
             plate_crop = frame[y1:y2, x1:x2]
+            degraded_crop = apply_degradation_pipeline(plate_crop, degradations)
 
             # Save the plate crop to plate_crops/ folder
             _save_plate_crop(job_id, track_id, event_type,
-                             frame_index, plate_index, plate_crop, det_conf)
+                             frame_index, plate_index, degraded_crop, det_conf)
 
             # Step 2: OCR on the plate crop
-            text, ocr_conf = _read_plate_text(plate_crop)
+            text, ocr_conf = _read_plate_text(degraded_crop)
             if not text:
                 continue
 
             cleaned = _clean_plate_text(text)
-            is_valid = _is_valid_plate(cleaned)
-            combined_conf = det_conf * ocr_conf
+            frame_meta = frame_metadata_lookup.get(fname, {})
+            quality_metrics = compute_frame_quality(degraded_crop, ocr_confidence=ocr_conf)
+            weighted_score = (det_conf * 0.2) + (ocr_conf * 0.5) + (quality_metrics["quality_score"] * 0.3)
 
-            # Prefer valid plates; otherwise take highest confidence
-            if is_valid and not best_valid:
-                best_plate = cleaned
-                best_conf = combined_conf
-                best_valid = True
-            elif (is_valid == best_valid) and combined_conf > best_conf:
-                best_plate = cleaned
-                best_conf = combined_conf
-                best_valid = is_valid
+            observation = {
+                "frame_name": fname,
+                "frame_index": frame_index,
+                "frame_id": int(frame_meta.get("frame_id", frame_index)),
+                "timestamp": float(frame_meta.get("timestamp", metadata.get("timestamp", time.time()))),
+                "ocr_text": normalize_plate_text(cleaned),
+                "ocr_confidence": round(float(ocr_conf), 4),
+                "detection_confidence": round(float(det_conf), 4),
+                "quality_score": round(float(quality_metrics["quality_score"]), 4),
+                "quality_metrics": quality_metrics,
+                "weighted_score": round(float(weighted_score), 4),
+                "valid": _is_valid_plate(cleaned),
+            }
+            observations.append(observation)
+
+            if best_single_observation is None:
+                best_single_observation = observation
+            else:
+                current_tuple = (best_single_observation["valid"], best_single_observation["weighted_score"])
+                candidate_tuple = (observation["valid"], observation["weighted_score"])
+                if candidate_tuple > current_tuple:
+                    best_single_observation = observation
+
+    best_plate = best_single_observation["ocr_text"] if best_single_observation else None
+    best_conf = best_single_observation["weighted_score"] if best_single_observation else 0.0
+    best_quality = best_single_observation["quality_score"] if best_single_observation else 0.0
+    best_valid = bool(best_single_observation["valid"]) if best_single_observation else False
+
+    fused_outputs = temporal_fuser.run_all(observations) if observations else {
+        "majority": "",
+        "confidence_weighted": "",
+        "character_weighted": "",
+    }
+
+    modes = {
+        "single_frame": _prediction_payload(best_plate, best_conf, observations, fallback_quality=best_quality),
+        "majority_vote": _prediction_payload(
+            fused_outputs["majority"],
+            _confidence_for_prediction(fused_outputs["majority"], observations),
+            observations,
+        ),
+        "confidence_weighted": _prediction_payload(
+            fused_outputs["confidence_weighted"],
+            _confidence_for_prediction(fused_outputs["confidence_weighted"], observations),
+            observations,
+        ),
+        "character_weighted": _prediction_payload(
+            fused_outputs["character_weighted"],
+            _confidence_for_prediction(fused_outputs["character_weighted"], observations),
+            observations,
+        ),
+    }
+
+    selected_mode = _mode_code_to_key()
+    selected_prediction = modes.get(selected_mode, modes["single_frame"])
 
     result = {
         'track_id': track_id,
-        'plate_text': best_plate,
-        'confidence': round(best_conf, 4),
+        'job_id': job_id,
+        'plate_text': selected_prediction.get('plate_text'),
+        'confidence': round(float(selected_prediction.get('confidence', 0.0) or 0.0), 4),
         'event_type': event_type,
-        'valid': best_valid,
+        'valid': bool(selected_prediction.get('valid')),
+        'quality_score': round(float(selected_prediction.get('quality_score', 0.0) or 0.0), 4),
+        'current_ocr': best_plate,
+        'fused_ocr': modes["character_weighted"].get("plate_text"),
+        'selected_mode': selected_mode,
+        'modes': modes,
+        'temporal_enabled': bool(metadata.get("temporal_enabled", True)),
+        'frame_count': len(frame_files),
+        'observation_count': len(observations),
+        'observations': observations,
+        'degradations': degradations,
+        'timestamp': time.time(),
     }
 
     # Update metadata with result
@@ -421,7 +645,7 @@ def _update_supabase(result):
 
 # ── Local results file (backup) ──────────────────────────────────
 
-RESULTS_FILE = "ocr_results.jsonl"
+RESULTS_FILE = getattr(config, "OCR_RESULTS_FILE", "ocr_results.jsonl")
 
 def _save_local_result(result):
     """Append result to local JSONL file as backup."""
@@ -430,6 +654,8 @@ def _save_local_result(result):
     try:
         with open(RESULTS_FILE, 'a') as f:
             f.write(json.dumps(result) + '\n')
+        _write_results_snapshot(result)
+        _append_evaluation_record(result)
     except Exception as e:
         print(f"[OCR-PROC] Failed to save local result: {e}")
 
@@ -515,5 +741,81 @@ def run_processor():
             time.sleep(poll_interval)
 
 
+def run_processor_research():
+    """Updated polling loop with research-mode logging."""
+    job_dir = getattr(config, 'OCR_JOB_DIR', 'ocr_jobs')
+    poll_interval = getattr(config, 'OCR_POLL_INTERVAL', 2.0)
+    processed_dir = os.path.join(job_dir, 'processed')
+
+    print(f"[OCR-PROC] Watching '{job_dir}/' for new jobs (poll every {poll_interval}s)")
+    print(f"[OCR-PROC] LP model: {getattr(config, 'LP_MODEL_PATH', 'not configured')}")
+    print(f"[OCR-PROC] Experiment mode: {getattr(config, 'OCR_EXPERIMENT_MODE', 'A').upper()} -> {_mode_code_to_key()}")
+    print(f"[OCR-PROC] Supabase: {'connected' if _DB_AVAILABLE else 'disabled'}")
+    print("=" * 50)
+
+    _get_lp_model()
+    _get_ocr_engine()
+
+    while True:
+        try:
+            if not os.path.exists(job_dir):
+                time.sleep(poll_interval)
+                continue
+
+            pending_jobs = []
+            for entry in os.scandir(job_dir):
+                if not entry.is_dir() or entry.name == 'processed':
+                    continue
+                meta = os.path.join(entry.path, 'metadata.json')
+                if os.path.exists(meta):
+                    try:
+                        with open(meta, 'r') as f:
+                            data = json.load(f)
+                        if data.get('status') == 'pending':
+                            pending_jobs.append(entry.path)
+                    except Exception:
+                        pass
+
+            if not pending_jobs:
+                time.sleep(poll_interval)
+                continue
+
+            print(f"[OCR-PROC] Found {len(pending_jobs)} pending job(s)")
+
+            for job_path in pending_jobs:
+                job_name = os.path.basename(job_path)
+                print(f"[OCR-PROC] Processing: {job_name}")
+                result = process_job(job_path)
+
+                if result:
+                    status = "[OK]" if result.get('plate_text') else "[MISS]"
+                    valid = " (valid)" if result.get('valid') else " (invalid format)" if result.get('plate_text') else ""
+                    print(
+                        f"  -> {status} ID:{result['track_id']} "
+                        f"plate=\"{result.get('plate_text', 'N/A')}\" "
+                        f"conf={result.get('confidence', 0):.2f} "
+                        f"quality={result.get('quality_score', 0):.2f} "
+                        f"mode={result.get('selected_mode')}{valid}"
+                    )
+                    _update_supabase(result)
+                    _save_local_result(result)
+
+                os.makedirs(processed_dir, exist_ok=True)
+                dest = os.path.join(processed_dir, job_name)
+                try:
+                    if os.path.exists(dest):
+                        shutil.rmtree(dest)
+                    shutil.move(job_path, dest)
+                except Exception as e:
+                    print(f"[OCR-PROC] Failed to move job: {e}")
+
+        except KeyboardInterrupt:
+            print("\n[OCR-PROC] Shutting down...")
+            break
+        except Exception as e:
+            print(f"[OCR-PROC] Error in main loop: {e}")
+            time.sleep(poll_interval)
+
+
 if __name__ == '__main__':
-    run_processor()
+    run_processor_research()

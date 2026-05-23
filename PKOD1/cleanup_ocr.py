@@ -56,6 +56,9 @@ else:
 JSON_PATTERNS = [
     os.path.join(BASE_DIR, "ocr_results.json"),
     os.path.join(BASE_DIR, "ocr_results.jsonl"),
+    os.path.join(BASE_DIR, "ocr_evaluation", "*.json"),
+    os.path.join(BASE_DIR, "ocr_evaluation", "*.jsonl"),
+    os.path.join(BASE_DIR, "ocr_evaluation", "*.csv"),
 ]
 
 deleted_json = 0

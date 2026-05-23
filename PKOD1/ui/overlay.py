@@ -92,3 +92,24 @@ def draw_plate_roi(frame, color=(0, 255, 255), thickness=2, label="PLATE ROI"):
     pad = 4
     cv.rectangle(frame, (x1, max(0, y1 - th - pad)), (x1 + tw + pad * 2, y1), (0, 0, 0), -1)
     cv.putText(frame, label, (x1 + pad, y1 - pad), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+
+
+def draw_ocr_overlay(frame, box, ocr_info):
+    """Draw optional OCR research overlay for a tracked vehicle."""
+    if not ocr_info:
+        return
+
+    x1, y1, x2, y2 = box
+    lines = [
+        f"Track {ocr_info.get('track_id', 'N/A')}",
+        f"Current: {ocr_info.get('current_ocr', 'N/A')}",
+        f"Fused: {ocr_info.get('plate_text', 'N/A')}",
+        f"Conf: {float(ocr_info.get('confidence', 0.0) or 0.0):.2f}",
+        f"Quality: {float(ocr_info.get('quality_score', 0.0) or 0.0):.2f}",
+    ]
+
+    base_x = max(0, x1)
+    base_y = min(frame.shape[0] - 10, max(40, y2 + 20))
+    for idx, text in enumerate(lines):
+        y = min(frame.shape[0] - 5, base_y + (idx * 18))
+        cv.putText(frame, text, (base_x, y), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)

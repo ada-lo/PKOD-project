@@ -9,6 +9,7 @@ import os
 import time
 import json
 import cv2 as cv
+import config
 
 OCR_JOB_DIR = "ocr_jobs"
 
@@ -28,7 +29,10 @@ def fire_ocr_job(vs, debug=False):
     under OCR_JOB_DIR. The separate ocr_processor.py watches this
     directory and processes new jobs.
     """
-    if not hasattr(vs, 'ocr_frame_buffer') or not vs.ocr_frame_buffer:
+    temporal_buffer = getattr(vs, 'temporal_ocr_buffer', None)
+    legacy_buffer = getattr(vs, 'ocr_frame_buffer', None)
+
+    if not temporal_buffer and not legacy_buffer:
         if debug:
             print(f"[OCR JOB] No frames buffered for ID:{vs.id}")
         return
@@ -41,14 +45,32 @@ def fire_ocr_job(vs, debug=False):
 
     # Save buffered frames as images
     frame_files = []
-    for i, frame in enumerate(vs.ocr_frame_buffer):
+    frame_metadata = []
+    source_buffer = list(temporal_buffer) if temporal_buffer else list(legacy_buffer)
+
+    for i, item in enumerate(source_buffer):
+        if isinstance(item, dict):
+            frame = item.get("plate_crop")
+            frame_id = int(item.get("frame_id", i))
+            timestamp = float(item.get("timestamp", time.time()))
+        else:
+            frame = item
+            frame_id = i
+            timestamp = time.time()
+
         if frame is None:
             continue
+
         fname = f"frame_{i:03d}.jpg"
         fpath = os.path.join(job_path, fname)
         try:
             cv.imwrite(fpath, frame)
             frame_files.append(fname)
+            frame_metadata.append({
+                "filename": fname,
+                "frame_id": frame_id,
+                "timestamp": timestamp,
+            })
         except Exception as e:
             if debug:
                 print(f"[OCR JOB] Failed to save frame {i}: {e}")
@@ -66,6 +88,9 @@ def fire_ocr_job(vs, debug=False):
         "timestamp": time.time(),
         "frame_count": len(frame_files),
         "frames": frame_files,
+        "frame_metadata": frame_metadata,
+        "experiment_mode": getattr(config, "OCR_EXPERIMENT_MODE", "A"),
+        "temporal_enabled": bool(getattr(config, "ENABLE_TEMPORAL_OCR", True)),
         "status": "pending",
     }
 
