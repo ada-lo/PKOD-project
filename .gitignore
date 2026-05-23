@@ -5,6 +5,8 @@
 # Assets and media
 /assets
 /path
+/plate_crops
+
 
 # Generated data
 /PKOD1/ocr_jobs
