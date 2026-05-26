@@ -379,26 +379,3 @@ Clean OCR artifacts:
 cd PKOD1
 python cleanup_ocr.py
 ```
-
-## Current Reality Check
-
-A few things in this repo still look research/prototype-like rather than fully packaged:
-
-- root dependencies are in `requirementss.txt`
-- model paths are partly hard-coded
-- there is no single launcher script yet
-- setup is very sensitive to local video/model paths
-
-So the most reliable way to use the project today is:
-
-1. configure `.env`
-2. verify model paths
-3. run `main.py`
-4. run `ocr_processor.py`
-5. optionally run `admin_dashboard.py`
-
-If you want, I can next turn this README into a cleaner onboarding flow by also adding:
-
-- a sample `ground_truth.json`
-- a `run_local.ps1` helper
-- a startup checklist for first-time users
